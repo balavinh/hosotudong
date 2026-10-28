@@ -102,10 +102,37 @@ async function enter(u) {
 }
 async function logout() { await sb.auth.signOut(); me = null; vAuth(); }
 
+/* ===== Đổi mật khẩu (mọi tài khoản) ===== */
+function pwModal() {
+  const m = document.createElement('div'); m.id = 'cap';
+  m.innerHTML = `<div class="capbox"><h3>Đổi mật khẩu</h3><div class="grid">
+  <label>Mật khẩu hiện tại<input id="p0" type="password" autocomplete="current-password"></label>
+  <label>Mật khẩu mới (tối thiểu 6 ký tự)<input id="p1" type="password" autocomplete="new-password"></label>
+  <label>Nhập lại mật khẩu mới<input id="p2" type="password" autocomplete="new-password"></label></div>
+  <div class="row"><button id="ps">Lưu mật khẩu mới</button><button class="sec" id="pc">Hủy</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#pc').onclick = () => m.remove();
+  m.querySelector('#ps').onclick = async () => {
+    const p0 = $('#p0').value, p1 = $('#p1').value, p2 = $('#p2').value;
+    if (!p0) return toast('Hãy nhập mật khẩu hiện tại');
+    if (p1.length < 6) return toast('Mật khẩu mới phải có ít nhất 6 ký tự');
+    if (p1 !== p2) return toast('Hai lần nhập mật khẩu mới không khớp');
+    if (p1 === p0) return toast('Mật khẩu mới phải khác mật khẩu hiện tại');
+    const btn = $('#ps'); btn.disabled = true;
+    const chk = await sb.auth.signInWithPassword({ email: me.email, password: p0 });
+    if (chk.error) { btn.disabled = false; return toast('Mật khẩu hiện tại không đúng'); }
+    const { error } = await sb.auth.updateUser({ password: p1 });
+    btn.disabled = false;
+    if (error) return toast('Không đổi được mật khẩu: ' + error.message);
+    m.remove(); toast('Đã đổi mật khẩu');
+  };
+  $('#p0').focus();
+}
+
 /* ===== Khung chính ===== */
 function shell() {
   const tab = (k, l) => `<button class="${view === k ? 'on' : ''}" onclick="go('${k}')">${l}</button>`;
-  $('#app').innerHTML = `<header><b>Quét CCCD</b><span>${esc(me.full_name)} · <a href="#" onclick="logout();return false">Thoát</a></span></header>
+  $('#app').innerHTML = `<header><b>Quét CCCD</b><span>${esc(me.full_name)} · <a href="#" onclick="pwModal();return false">Đổi mật khẩu</a> · <a href="#" onclick="logout();return false">Thoát</a></span></header>
   <nav>${tab('scan', 'Quét & tạo hồ sơ')}${me.role === 'admin' ? tab('tpl', 'Mẫu biểu') + tab('usr', 'Tài khoản') : ''}</nav><main id="v"></main>`;
   ({ scan: vScan, tpl: vTpl, usr: vUsr })[view]();
 }
