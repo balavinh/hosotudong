@@ -197,6 +197,7 @@ let lastBad = '';
 function onScan(text) {
   const r = parse(text);
   if (!r) { if (text !== lastBad) { lastBad = text; toast('Đọc được mã QR nhưng không phải CCCD: ' + String(text).slice(0, 60)); } return false; }
+  if (cur.so_cccd && cur.so_cccd !== r.so_cccd) { imgs = { front: null, back: null, phone: [] }; renderImgs(); }
   cur = r; stopCam(); fillForm(); toast('Đã đọc QR. Hãy kiểm tra thông tin bên dưới.'); return true;
 }
 const resHtml = () => '<h3>Đã đọc được từ QR</h3>' + UI.map(([k, l]) => cur[k] ? `<div class="kv"><span>${l}</span><b>${esc(cur[k])}</b></div>` : '').join('');
@@ -268,9 +269,10 @@ function vScan() {
     <select id="cs" hidden onchange="startCam(this.value)"></select></div></section>
     <section id="res" class="res" ${cur.so_cccd ? '' : 'hidden'}>${cur.so_cccd ? resHtml() : ''}</section>
     <section><h3>Thông tin trên căn cước</h3><div class="grid">${UI.map(([k, l]) => `<label>${l}<input id="f_${k}" value="${esc(cur[k] || '')}"></label>`).join('')}</div>
-    <p class="m">Ngày hết hạn được ước tính từ ngày sinh, hãy đối chiếu với mặt thẻ.</p></section>
+    <p class="m">Ngày hết hạn được ước tính từ ngày sinh, hãy đối chiếu với mặt thẻ.</p><button class="sec" onclick="newCase()">Khách mới (xóa thông tin và ảnh)</button></section>
     <section id="imgs"></section>
-    <section><h3>Chọn mẫu biểu</h3>${tpls.filter(t => t.enabled).map(t => `<label class="chk"><input type="checkbox" class="tp" value="${t.id}">${esc(t.name)}</label>`).join('') || '<p class="m">Chưa có mẫu biểu. Quản trị viên cần tải mẫu lên.</p>'}
+    <section><h3>Chọn mẫu biểu</h3>${tpls.filter(t => t.enabled).map(t => `<label class="chk"><input type="checkbox" class="tp" value="${t.id}" onchange="updSum()">${esc(t.name)}</label>`).join('') || '<p class="m">Chưa có mẫu biểu. Quản trị viên cần tải mẫu lên.</p>'}
+    <p class="m" id="sum"></p>
     <label class="chk"><input type="checkbox" id="zip" checked>Nén tất cả (Word, PDF, Excel) thành 1 file 7z</label>
     <button class="big" onclick="generate()">Tạo hồ sơ và tải về</button></section>
     <section><h3>File Excel</h3><p class="m">Đã lưu ${getRows().length} dòng trên thiết bị này. Mỗi lần tạo hồ sơ sẽ thêm 1 dòng.</p>
@@ -296,6 +298,12 @@ function snap(src, r) {
 }
 function setImg(kind, im) { if (kind === 'phone') imgs.phone.push(im); else imgs[kind] = im; renderImgs(); }
 function delPhone(i) { imgs.phone.splice(i, 1); renderImgs(); }
+function newCase() { cur = {}; imgs = { front: null, back: null, phone: [] }; vScan(); toast('Đã làm mới cho khách tiếp theo'); }
+function updSum() {
+  const e = $('#sum'); if (!e) return;
+  const n = document.querySelectorAll('.tp:checked').length, c = (imgs.front ? 1 : 0) + (imgs.back ? 1 : 0), p = imgs.phone.length;
+  e.textContent = `Gói tải về gồm: ${n} mẫu Word; ` + (c || p ? `1 file PDF (${c} ảnh căn cước, ${p} ảnh điện thoại)` : 'chưa có ảnh nên không có file PDF') + '; 1 file Excel.';
+}
 function renderImgs() {
   const el = $('#imgs'); if (!el) return;
   const th = i => i ? `<img class="th" src="${i.d}" alt="">` : '<div class="th ph">Chưa có ảnh</div>';
@@ -306,6 +314,7 @@ function renderImgs() {
     <h3 style="margin-top:14px">Ảnh số điện thoại chính chủ</h3>
     <div class="thumbs">${imgs.phone.map((p, i) => `<div class="tw"><img class="th" src="${p.d}" alt=""><button class="x" onclick="delPhone(${i})" aria-label="Xóa ảnh">×</button></div>`).join('')}</div>
     <button class="sec" onclick="openCap('phone')">Thêm ảnh</button>`;
+  updSum();
 }
 async function openCap(kind) {
   await stopCam();
@@ -384,22 +393,31 @@ async function makeXlsx() {
   ws.getRow(1).font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }];
   return new Uint8Array(await wb.xlsx.writeBuffer());
 }
-let sz7 = null;
+let sz7 = null; const log7 = [];
 const ascii = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
 async function make7z(list, out) { // nén .7z bằng 7-Zip WASM (tải lần đầu ~1,8 MB, tên file trong gói bỏ dấu)
-  if (!sz7) sz7 = await (await import('https://cdn.jsdelivr.net/npm/7z-wasm@1.2.0/7zz.es6.js')).default();
+  if (!sz7) sz7 = await (await import('https://cdn.jsdelivr.net/npm/7z-wasm@1.2.0/7zz.es6.js')).default({ print: l => log7.push(l), printErr: l => log7.push(l) });
   const names = list.map(f => ascii(f.name));
-  list.forEach((f, i) => sz7.FS.writeFile(names[i], f.data));
-  sz7.callMain(['a', '-t7z', '-mx=5', out, ...names]);
-  const r = new Uint8Array(sz7.FS.readFile(out));
-  names.forEach(n => sz7.FS.unlink(n)); sz7.FS.unlink(out);
-  return r;
+  const listed = () => { log7.length = 0; sz7.callMain(['l', '-ba', out]); return log7.join('\n'); };
+  try {
+    list.forEach((f, i) => sz7.FS.writeFile(names[i], f.data));
+    sz7.callMain(['a', '-t7z', '-mx=5', out, ...names]);
+    if (listed().trim()) { // đối chiếu: file nào thiếu thì thêm lại, vẫn thiếu thì báo lỗi để chuyển sang ZIP
+      let miss = names.filter(n => !listed().includes(n));
+      if (miss.length) { miss.forEach(n => sz7.callMain(['a', '-t7z', out, n])); listed(); miss = names.filter(n => !log7.join('\n').includes(n)); }
+      if (miss.length) throw new Error('7z thiếu file: ' + miss.join(', '));
+    }
+    return new Uint8Array(sz7.FS.readFile(out));
+  } finally {
+    [...names, out].forEach(n => { try { sz7.FS.unlink(n); } catch {} });
+  }
 }
 async function generate() {
   UI.forEach(([k]) => cur[k] = $('#f_' + k).value.trim());
   if (!cur.so_cccd || !cur.ho_ten) return toast('Hãy quét QR hoặc nhập số căn cước và họ tên');
   const ids = [...document.querySelectorAll('.tp:checked')].map(c => c.value);
   if (!ids.length) return toast('Hãy chọn ít nhất 1 mẫu biểu');
+  if (!(imgs.front || imgs.back || imgs.phone.length) && !confirm('Chưa có ảnh căn cước hoặc ảnh số điện thoại nên gói tải về sẽ KHÔNG có file PDF. Vẫn tạo hồ sơ?')) return;
   const now = new Date(), data = { ...cur, ho_ten_hoa: cur.ho_ten.toUpperCase(), ngay_hien_tai: now.toLocaleDateString('vi-VN') };
   const files = [], chosen = tpls.filter(t => ids.includes(t.id));
   toast('Đang tạo hồ sơ...');
@@ -432,7 +450,7 @@ async function generate() {
     for (const f of files) { dl(f.name, f.data, f.name.endsWith('.pdf') ? 'application/pdf' : DOCX); await sleep(500); }
     dl('DuLieuQuet.xlsx', x, XLSX);
   }
-  imgs = { front: null, back: null, phone: [] }; toast(msg); vScan();
+  if (msg.startsWith('Đã')) msg = 'Đã tạo gói: ' + chosen.length + ' mẫu Word' + (files.some(f => f.name.endsWith('.pdf')) ? ' + 1 PDF ảnh' : '') + ' + Excel. Bấm "Khách mới" để làm mới.'; toast(msg); vScan();
 }
 async function dlXlsx() { if (!getRows().length) return toast('Chưa có dữ liệu'); dl('DuLieuQuet.xlsx', await makeXlsx(), XLSX); }
 function clearRows() { if (confirm('Xóa toàn bộ dữ liệu Excel đã quét trên thiết bị này?')) { setRows([]); vScan(); } }
