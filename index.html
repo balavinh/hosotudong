@@ -32,7 +32,8 @@ button.big{width:100%;padding:13px;margin-top:8px}
 .item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
 .item:first-of-type{border-top:0}
 .item>div{min-width:0}.item select{width:auto}
-#reader{width:100%;border-radius:8px;overflow:hidden}
+#reader{width:100%;border-radius:8px;overflow:hidden}#reader video{width:100%;display:block}
+.res{border-color:var(--ac);border-width:2px}.kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line)}.kv b{text-align:right}
 .auth{max-width:380px;display:grid;gap:10px;padding-top:40px}
 #t{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;display:none;max-width:90%;z-index:9}
 :focus-visible{outline:3px solid var(--ac);outline-offset:2px}
@@ -41,7 +42,7 @@ button.big{width:100%;padding:13px;margin-top:8px}
 <body>
 <div id="app"></div><div id="t"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.47.4/build/docxtemplater.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
@@ -58,7 +59,7 @@ const UI = [['so_cccd','Số căn cước'],['ho_ten','Họ và tên'],['ngay_si
 const COLS = [['stt','STT',6],['user','User quét',22],['time','Ngày giờ quét',20],['types','Loại văn bản',34],['so_cccd','Số căn cước',16],['ho_ten','Họ và tên',26],['ngay_sinh','Ngày sinh',12],['gioi_tinh','Giới tính',9],['dia_chi','Địa chỉ thường trú',44],['ngay_cap','Ngày cấp',12],['ngay_het_han','Ngày hết hạn',14],['noi_cap','Nơi cấp',28],['so_cmnd_cu','Số CMND cũ',14]];
 const OPT = { delimiters:{start:'{{',end:'}}'}, paragraphLoop:true, linebreaks:true, nullGetter:()=>'' };
 const LS = 'cccd_rows_v1';
-let me = null, view = 'scan', tpls = [], cur = {}, qr = null, camOn = false;
+let me = null, view = 'scan', tpls = [], cur = {};
 
 const toast = m => { const t = $('#t'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4000); };
 const getRows = () => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } };
@@ -106,11 +107,13 @@ async function loadTpls() {
 }
 
 /* ===== Quét QR ===== */
+const d8 = s => /^\d{8}$/.test(s) ? `${s.slice(0,2)}/${s.slice(2,4)}/${s.slice(4)}` : (s || '');
 function parse(t) {
-  const p = t.split('|');
-  if (p.length < 6 || !/^\d{9,12}$/.test(p[0])) return null;
-  const d = s => /^\d{8}$/.test(s) ? `${s.slice(0,2)}/${s.slice(2,4)}/${s.slice(4)}` : (s || '');
-  return { so_cccd: p[0], so_cmnd_cu: p[1] || '', ho_ten: p[2], ngay_sinh: d(p[3]), gioi_tinh: p[4], dia_chi: p[5], ngay_cap: d(p[6]), noi_cap: DEFAULT_PLACE, ngay_het_han: expiry(p[3], p[6]) };
+  const p = String(t).replace(/[\r\n]/g, '').split('|').map(s => s.trim());
+  const i = p.findIndex(x => /^\d{9,12}$/.test(x));
+  if (i < 0 || p.length < i + 5) return null;
+  const q = p.slice(i);
+  return { so_cccd: q[0], so_cmnd_cu: q[1] || '', ho_ten: q[2] || '', ngay_sinh: d8(q[3]), gioi_tinh: q[4] || '', dia_chi: q[5] || '', ngay_cap: d8(q[6]), noi_cap: DEFAULT_PLACE, ngay_het_han: expiry(q[3], q[6]) };
 }
 function expiry(b, i) { // ước tính theo mốc đổi thẻ 25/40/60 tuổi, cần đối chiếu mặt thẻ
   if (!/^\d{8}$/.test(b) || !/^\d{8}$/.test(i)) return '';
@@ -118,34 +121,115 @@ function expiry(b, i) { // ước tính theo mốc đổi thẻ 25/40/60 tuổi,
   const n = age < 23 ? 25 : age < 38 ? 40 : age < 58 ? 60 : 0;
   return n ? `${b.slice(0,2)}/${b.slice(2,4)}/${by + n}` : 'Không thời hạn';
 }
+
+/* --- Bộ giải mã: BarcodeDetector (nếu trình duyệt có) + jsQR, thử nhiều biến thể --- */
+let BD = null; try { if (window.BarcodeDetector) BD = new BarcodeDetector({ formats: ['qr_code'] }); } catch {}
+const ctx2 = c => c.getContext('2d', { willReadFrequently: true });
+async function decodeCanvas(c) {
+  if (BD) { try { const r = await BD.detect(c); if (r.length && r[0].rawValue) return r[0].rawValue; } catch {} }
+  const im = ctx2(c).getImageData(0, 0, c.width, c.height);
+  const r = jsQR(im.data, im.width, im.height, { inversionAttempts: 'attemptBoth' });
+  if (!r) return null;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(r.binaryData)); } catch { return r.data; }
+}
+function binarize(c) { // tăng tương phản bằng ngưỡng Otsu
+  const x = ctx2(c), im = x.getImageData(0, 0, c.width, c.height), d = im.data, h = new Array(256).fill(0);
+  for (let i = 0; i < d.length; i += 4) { const g = (d[i] * 3 + d[i+1] * 6 + d[i+2]) / 10 | 0; d[i] = g; h[g]++; }
+  const N = d.length / 4; let sum = 0; for (let i = 0; i < 256; i++) sum += i * h[i];
+  let wB = 0, sB = 0, best = 0, th = 128;
+  for (let i = 0; i < 256; i++) { wB += h[i]; if (!wB) continue; const wF = N - wB; if (!wF) break; sB += i * h[i]; const v = wB * wF * (sB / wB - (sum - sB) / wF) ** 2; if (v > best) { best = v; th = i; } }
+  for (let i = 0; i < d.length; i += 4) { const v = d[i] > th ? 255 : 0; d[i] = d[i+1] = d[i+2] = v; }
+  x.putImageData(im, 0, 0);
+}
+async function decodeImage(bmp) {
+  const c = document.createElement('canvas');
+  for (const s of [1, 0.6, 1.5, 0.4, 0.8]) {
+    let k = s; const m = Math.max(bmp.width, bmp.height) * k;
+    if (m > 2600) k = 2600 / Math.max(bmp.width, bmp.height);
+    c.width = Math.max(200, bmp.width * k | 0); c.height = Math.max(200, bmp.height * k | 0);
+    ctx2(c).drawImage(bmp, 0, 0, c.width, c.height);
+    let t = await decodeCanvas(c); if (t) return t;
+    binarize(c); t = await decodeCanvas(c); if (t) return t;
+    await sleep(0);
+  }
+  return null;
+}
+
+/* --- Xử lý kết quả --- */
+let lastBad = '';
 function onScan(text) {
   const r = parse(text);
-  if (!r) return toast('Mã QR này không phải CCCD');
-  cur = r; stopCam().then(() => { vScan(); toast('Đã đọc QR. Hãy kiểm tra thông tin.'); });
+  if (!r) { if (text !== lastBad) { lastBad = text; toast('Đọc được mã QR nhưng không phải CCCD: ' + String(text).slice(0, 60)); } return false; }
+  cur = r; stopCam(); fillForm(); toast('Đã đọc QR. Hãy kiểm tra thông tin bên dưới.'); return true;
 }
-async function toggleCam() {
-  if (camOn) return stopCam();
-  try {
-    qr = new Html5Qrcode('reader');
-    await qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 260 } }, onScan, () => {});
-    camOn = true; $('#bc').textContent = 'Tắt camera';
-  } catch { toast('Không mở được camera. Hãy cấp quyền hoặc dùng "Chọn ảnh QR".'); }
-}
-async function stopCam() {
-  if (qr && camOn) { try { await qr.stop(); } catch {} }
-  camOn = false;
+const resHtml = () => '<h3>Đã đọc được từ QR</h3>' + UI.map(([k, l]) => cur[k] ? `<div class="kv"><span>${l}</span><b>${esc(cur[k])}</b></div>` : '').join('');
+function fillForm() {
+  UI.forEach(([k]) => { const e = $('#f_' + k); if (e) e.value = cur[k] || ''; });
+  const r = $('#res'); if (r) { r.innerHTML = resHtml(); r.hidden = !cur.so_cccd; r.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 }
 async function scanImg(f) {
   if (!f) return;
-  try { qr = qr || new Html5Qrcode('reader'); onScan(await qr.scanFile(f, false)); }
-  catch { toast('Không đọc được QR trong ảnh'); }
+  toast('Đang đọc ảnh...');
+  try {
+    const bmp = await createImageBitmap(f), t = await decodeImage(bmp);
+    if (t) onScan(t); else toast('Không tìm thấy QR trong ảnh. Hãy chụp lại gần hơn, đủ sáng, không chói.');
+  } catch { toast('Không mở được ảnh này'); }
 }
+
+/* --- Camera --- */
+let stream = null, vid = null, loopOn = false, devs = [];
+const saved = () => { try { return localStorage.getItem('cam') || ''; } catch { return ''; } };
+async function startCam(id) {
+  await stopCam();
+  const host = $('#reader'); if (!host) return;
+  host.innerHTML = '<video playsinline muted></video>'; vid = host.firstChild;
+  const mk = i => ({ video: { width: { ideal: 1920 }, height: { ideal: 1080 }, ...(i ? { deviceId: { exact: i } } : { facingMode: { ideal: 'environment' } }) } });
+  try { stream = await navigator.mediaDevices.getUserMedia(mk(id)); }
+  catch { try { stream = await navigator.mediaDevices.getUserMedia(mk('')); } catch { host.innerHTML = ''; return toast('Không mở được camera. Hãy cấp quyền camera hoặc dùng "Chọn ảnh QR".'); } }
+  vid.srcObject = stream; await vid.play().catch(() => {});
+  const tr = stream.getVideoTracks()[0], aid = tr.getSettings().deviceId;
+  try { await tr.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
+  try { localStorage.setItem('cam', aid || ''); } catch {}
+  devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const s = $('#cs'), b = $('#bc'); if (b) b.textContent = 'Tắt camera';
+  if (s) { s.innerHTML = devs.map((d, i) => `<option value="${d.deviceId}" ${d.deviceId === aid ? 'selected' : ''}>${esc(d.label || 'Camera ' + (i + 1))}</option>`).join(''); s.hidden = devs.length < 2; }
+  loopOn = true; scanLoop();
+}
+async function scanLoop() {
+  const c = document.createElement('canvas'); let n = 0;
+  while (loopOn) {
+    await sleep(120);
+    if (!vid || vid.readyState < 2 || !vid.videoWidth) continue;
+    const W = vid.videoWidth, H = vid.videoHeight; let sx = 0, sy = 0, sw = W, sh = H;
+    if (n++ % 2) { sw = sh = Math.min(W, H) * 0.7 | 0; sx = (W - sw) / 2 | 0; sy = (H - sh) / 2 | 0; } // xen kẽ: toàn khung / vùng giữa
+    c.width = sw; c.height = sh; ctx2(c).drawImage(vid, sx, sy, sw, sh, 0, 0, sw, sh);
+    const t = await decodeCanvas(c);
+    if (t && loopOn && onScan(t)) break;
+  }
+}
+async function stopCam() {
+  loopOn = false;
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; vid = null;
+  const h = $('#reader'), b = $('#bc'); if (h) h.innerHTML = ''; if (b) b.textContent = 'Bật camera';
+}
+const toggleCam = () => stream ? stopCam() : startCam(saved());
+function nextCam() {
+  if (!stream) return toast('Hãy bật camera trước');
+  if (devs.length < 2) return toast('Thiết bị chỉ có 1 camera');
+  const i = devs.findIndex(d => d.deviceId === $('#cs').value);
+  startCam(devs[(i + 1) % devs.length].deviceId);
+}
+
 function vScan() {
   loadTpls().then(() => {
     if (view !== 'scan') return;
     $('#v').innerHTML = `
     <section><div id="reader"></div><div class="row"><button id="bc" onclick="toggleCam()">Bật camera</button>
-    <label class="btn sec">Chọn ảnh QR<input type="file" accept="image/*" hidden onchange="scanImg(this.files[0])"></label></div></section>
+    <button class="sec" onclick="nextCam()">Đổi camera</button>
+    <label class="btn sec">Chọn ảnh QR<input type="file" accept="image/*" hidden onchange="scanImg(this.files[0]);this.value=''"></label>
+    <select id="cs" hidden onchange="startCam(this.value)"></select></div></section>
+    <section id="res" class="res" ${cur.so_cccd ? '' : 'hidden'}>${cur.so_cccd ? resHtml() : ''}</section>
     <section><h3>Thông tin trên căn cước</h3><div class="grid">${UI.map(([k, l]) => `<label>${l}<input id="f_${k}" value="${esc(cur[k] || '')}"></label>`).join('')}</div>
     <p class="m">Ngày hết hạn được ước tính từ ngày sinh, hãy đối chiếu với mặt thẻ.</p></section>
     <section><h3>Chọn mẫu biểu</h3>${tpls.filter(t => t.enabled).map(t => `<label class="chk"><input type="checkbox" class="tp" value="${t.id}">${esc(t.name)}</label>`).join('') || '<p class="m">Chưa có mẫu biểu. Quản trị viên cần tải mẫu lên.</p>'}
