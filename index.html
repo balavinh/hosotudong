@@ -35,7 +35,16 @@ button.big{width:100%;padding:13px;margin-top:8px}
 #reader{width:100%;border-radius:8px;overflow:hidden}#reader video{width:100%;display:block}
 .res{border-color:var(--ac);border-width:2px}.kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line)}.kv b{text-align:right}
 .auth{max-width:380px;display:grid;gap:10px;padding-top:40px}
-#t{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;display:none;max-width:90%;z-index:9}
+#t{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;display:none;max-width:90%;z-index:30}
+#cap{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:20;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow:auto}
+.capbox{background:var(--card);border-radius:12px;padding:14px;width:100%;max-width:560px}
+.capv{position:relative;margin:0 auto;overflow:hidden;border-radius:8px;background:#000;max-width:100%}.capv video{width:100%;display:block}
+#gd{position:absolute;border:3px dashed #fff;box-shadow:0 0 0 999px rgba(0,0,0,.5)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}.two button{width:100%}
+.th{width:100%;display:block;border-radius:6px;border:1px solid var(--line);margin:4px 0 6px;aspect-ratio:85.6/54;object-fit:cover}
+.th.ph{display:flex;align-items:center;justify-content:center;color:var(--mut);font-size:13px}
+.thumbs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}.tw{position:relative;width:90px}.tw .th{aspect-ratio:3/4}
+.x{position:absolute;top:6px;right:4px;padding:0 8px;line-height:24px;background:rgba(0,0,0,.65);color:#fff}
 :focus-visible{outline:3px solid var(--ac);outline-offset:2px}
 </style>
 </head>
@@ -43,6 +52,7 @@ button.big{width:100%;padding:13px;margin-top:8px}
 <div id="app"></div><div id="t"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.47.4/build/docxtemplater.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
@@ -232,12 +242,104 @@ function vScan() {
     <section id="res" class="res" ${cur.so_cccd ? '' : 'hidden'}>${cur.so_cccd ? resHtml() : ''}</section>
     <section><h3>Thông tin trên căn cước</h3><div class="grid">${UI.map(([k, l]) => `<label>${l}<input id="f_${k}" value="${esc(cur[k] || '')}"></label>`).join('')}</div>
     <p class="m">Ngày hết hạn được ước tính từ ngày sinh, hãy đối chiếu với mặt thẻ.</p></section>
+    <section id="imgs"></section>
     <section><h3>Chọn mẫu biểu</h3>${tpls.filter(t => t.enabled).map(t => `<label class="chk"><input type="checkbox" class="tp" value="${t.id}">${esc(t.name)}</label>`).join('') || '<p class="m">Chưa có mẫu biểu. Quản trị viên cần tải mẫu lên.</p>'}
-    <label class="chk"><input type="checkbox" id="zip">Nén tất cả thành 1 file 7z</label>
+    <label class="chk"><input type="checkbox" id="zip" checked>Nén tất cả (Word, PDF, Excel) thành 1 file 7z</label>
     <button class="big" onclick="generate()">Tạo hồ sơ và tải về</button></section>
     <section><h3>File Excel</h3><p class="m">Đã lưu ${getRows().length} dòng trên thiết bị này. Mỗi lần tạo hồ sơ sẽ thêm 1 dòng.</p>
     <div class="row"><button class="sec" onclick="dlXlsx()">Tải Excel</button><button class="sec danger" onclick="clearRows()">Xóa dữ liệu Excel</button></div></section>`;
+    renderImgs();
   });
+}
+
+/* ===== Chụp ảnh căn cước / số điện thoại, ghép PDF A4 ===== */
+let imgs = { front: null, back: null, phone: [] };
+const CARD_R = 85.6 / 54;
+const CAP_T = { front: 'Chụp mặt trước căn cước', back: 'Chụp mặt sau căn cước', phone: 'Chụp màn hình điện thoại của khách' };
+function cropRect(sw, sh, m) { // vùng cắt theo khung thẻ 85,6 x 54 mm; m = 0 là lấy toàn ảnh
+  if (!m) return { x: 0, y: 0, w: sw, h: sh };
+  let w = sw * m, h = w / CARD_R; if (h > sh * m) { h = sh * m; w = h * CARD_R; }
+  return { x: (sw - w) / 2, y: (sh - h) / 2, w, h };
+}
+function snap(src, r) {
+  const k = Math.min(1, 1800 / Math.max(r.w, r.h)), c = document.createElement('canvas');
+  c.width = Math.round(r.w * k); c.height = Math.round(r.h * k);
+  c.getContext('2d').drawImage(src, r.x, r.y, r.w, r.h, 0, 0, c.width, c.height);
+  return { d: c.toDataURL('image/jpeg', 0.88), w: c.width, h: c.height };
+}
+function setImg(kind, im) { if (kind === 'phone') imgs.phone.push(im); else imgs[kind] = im; renderImgs(); }
+function delPhone(i) { imgs.phone.splice(i, 1); renderImgs(); }
+function renderImgs() {
+  const el = $('#imgs'); if (!el) return;
+  const th = i => i ? `<img class="th" src="${i.d}" alt="">` : '<div class="th ph">Chưa có ảnh</div>';
+  el.innerHTML = `<h3>Ảnh căn cước</h3><div class="two">
+    <div><div class="m">Mặt trước</div>${th(imgs.front)}<button class="sec" onclick="openCap('front')">${imgs.front ? 'Chụp lại' : 'Chụp mặt trước'}</button></div>
+    <div><div class="m">Mặt sau</div>${th(imgs.back)}<button class="sec" onclick="openCap('back')">${imgs.back ? 'Chụp lại' : 'Chụp mặt sau'}</button></div></div>
+    <p class="m">Hai mặt được ghép vào 1 trang PDF A4, mặt trước ở trên, mặt sau ở dưới, đúng kích thước thật 85,6 x 54 mm.</p>
+    <h3 style="margin-top:14px">Ảnh số điện thoại chính chủ</h3>
+    <div class="thumbs">${imgs.phone.map((p, i) => `<div class="tw"><img class="th" src="${p.d}" alt=""><button class="x" onclick="delPhone(${i})" aria-label="Xóa ảnh">×</button></div>`).join('')}</div>
+    <button class="sec" onclick="openCap('phone')">Thêm ảnh</button>`;
+}
+async function openCap(kind) {
+  await stopCam();
+  const card = kind !== 'phone', m = document.createElement('div'); m.id = 'cap';
+  m.innerHTML = `<div class="capbox"><h3>${CAP_T[kind]}</h3><div class="capv"><video playsinline muted></video><div id="gd" hidden></div></div>
+  <p class="m">${card ? 'Đặt thẻ vừa khít khung nét đứt, đủ sáng, không bị chói.' : 'Chụp rõ số điện thoại và tên chủ thuê bao trên màn hình.'}</p>
+  <div class="row"><button id="shot">Chụp</button><button class="sec" id="cc">Đổi camera</button>
+  <label class="btn sec">Chọn ảnh<input type="file" accept="image/*" hidden id="cf"></label><button class="sec" id="cx">Đóng</button></div></div>`;
+  document.body.appendChild(m);
+  const v = m.querySelector('video'), gd = m.querySelector('#gd'), box = m.querySelector('.capv');
+  let s = null, list = [];
+  const close = () => { if (s) s.getTracks().forEach(t => t.stop()); m.remove(); };
+  v.onloadedmetadata = () => {
+    const vw = v.videoWidth, vh = v.videoHeight;
+    box.style.width = Math.min(box.parentElement.clientWidth - 28, innerHeight * 0.55 * vw / vh) + 'px';
+    if (card) { const r = cropRect(vw, vh, 0.9); gd.hidden = false; gd.style.cssText = `left:${r.x / vw * 100}%;top:${r.y / vh * 100}%;width:${r.w / vw * 100}%;height:${r.h / vh * 100}%`; }
+  };
+  const start = async id => {
+    if (s) s.getTracks().forEach(t => t.stop());
+    const mk = i => ({ video: { width: { ideal: 2560 }, height: { ideal: 1440 }, ...(i ? { deviceId: { exact: i } } : { facingMode: { ideal: 'environment' } }) } });
+    try { s = await navigator.mediaDevices.getUserMedia(mk(id)); }
+    catch { try { s = await navigator.mediaDevices.getUserMedia(mk('')); } catch { return toast('Không mở được camera. Hãy cấp quyền camera hoặc dùng "Chọn ảnh".'); } }
+    v.srcObject = s; await v.play().catch(() => {});
+    const tr = s.getVideoTracks()[0];
+    try { await tr.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch {}
+    try { localStorage.setItem('cam', tr.getSettings().deviceId || ''); } catch {}
+    list = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  };
+  m.querySelector('#shot').onclick = () => {
+    if (!v.videoWidth) return toast('Camera chưa sẵn sàng');
+    setImg(kind, snap(v, cropRect(v.videoWidth, v.videoHeight, card ? 0.9 : 0))); close();
+  };
+  m.querySelector('#cc').onclick = () => {
+    if (list.length < 2) return toast('Thiết bị chỉ có 1 camera');
+    const cid = s.getVideoTracks()[0].getSettings().deviceId, i = list.findIndex(d => d.deviceId === cid);
+    start(list[(i + 1) % list.length].deviceId);
+  };
+  m.querySelector('#cx').onclick = close;
+  m.querySelector('#cf').onchange = async e => {
+    const f = e.target.files[0]; if (!f) return;
+    try {
+      const b = await createImageBitmap(f); let r = { x: 0, y: 0, w: b.width, h: b.height };
+      if (card && Math.abs(b.width / b.height - CARD_R) / CARD_R > 0.08) r = cropRect(b.width, b.height, 1);
+      setImg(kind, snap(b, r)); close();
+    } catch { toast('Không mở được ảnh này'); }
+  };
+  start(saved());
+}
+function makePdf() { // A4 210 x 297 mm: mặt trước ở trên, mặt sau ở dưới, ảnh điện thoại xếp bên dưới
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' }), CW = 85.6, CH = 54, cx = (210 - CW) / 2;
+  if (imgs.front) doc.addImage(imgs.front.d, 'JPEG', cx, 15, CW, CH);
+  if (imgs.back) doc.addImage(imgs.back.d, 'JPEG', cx, 79, CW, CH);
+  let y = (imgs.front || imgs.back) ? 148 : 15, col = 0, rowH = 0;
+  for (const p of imgs.phone) {
+    const k = Math.min(85 / p.w, 125 / p.h), w = p.w * k, h = p.h * k;
+    if (y + h > 285) { doc.addPage(); y = 15; col = 0; rowH = 0; }
+    doc.addImage(p.d, 'JPEG', 15 + col * 95, y, w, h);
+    rowH = Math.max(rowH, h);
+    if (++col === 2) { col = 0; y += rowH + 8; rowH = 0; }
+  }
+  return new Uint8Array(doc.output('arraybuffer'));
 }
 
 /* ===== Tạo hồ sơ ===== */
@@ -283,6 +385,9 @@ async function generate() {
       files.push({ name: `${t.name.replace(/[\\/:*?"<>|]/g, '_')}_${cur.so_cccd}.docx`, data: doc.getZip().generate({ type: 'uint8array', compression: 'DEFLATE' }) });
     }
   } catch (e) { return toast(e.message || 'Lỗi khi điền mẫu biểu'); }
+  if (imgs.front || imgs.back || imgs.phone.length) {
+    try { files.push({ name: `CCCD_${cur.so_cccd}.pdf`, data: makePdf() }); } catch { return toast('Không tạo được file PDF ảnh căn cước'); }
+  }
   const rows = getRows();
   rows.push({ user: me.full_name || me.email, time: now.toLocaleString('vi-VN'), types: chosen.map(t => t.name).join(', '), ...Object.fromEntries(UI.map(([k]) => [k, cur[k]])) });
   setRows(rows);
@@ -297,10 +402,10 @@ async function generate() {
       msg = 'Không nén được 7z (cần kết nối mạng để tải bộ nén), đã nén ZIP thay thế';
     }
   } else {
-    for (const f of files) { dl(f.name, f.data, DOCX); await sleep(500); }
+    for (const f of files) { dl(f.name, f.data, f.name.endsWith('.pdf') ? 'application/pdf' : DOCX); await sleep(500); }
     dl('DuLieuQuet.xlsx', x, XLSX);
   }
-  toast(msg); vScan();
+  imgs = { front: null, back: null, phone: [] }; toast(msg); vScan();
 }
 async function dlXlsx() { if (!getRows().length) return toast('Chưa có dữ liệu'); dl('DuLieuQuet.xlsx', await makeXlsx(), XLSX); }
 function clearRows() { if (confirm('Xóa toàn bộ dữ liệu Excel đã quét trên thiết bị này?')) { setRows([]); vScan(); } }
