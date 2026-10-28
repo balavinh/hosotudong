@@ -233,7 +233,7 @@ function vScan() {
     <section><h3>Thông tin trên căn cước</h3><div class="grid">${UI.map(([k, l]) => `<label>${l}<input id="f_${k}" value="${esc(cur[k] || '')}"></label>`).join('')}</div>
     <p class="m">Ngày hết hạn được ước tính từ ngày sinh, hãy đối chiếu với mặt thẻ.</p></section>
     <section><h3>Chọn mẫu biểu</h3>${tpls.filter(t => t.enabled).map(t => `<label class="chk"><input type="checkbox" class="tp" value="${t.id}">${esc(t.name)}</label>`).join('') || '<p class="m">Chưa có mẫu biểu. Quản trị viên cần tải mẫu lên.</p>'}
-    <label class="chk"><input type="checkbox" id="zip">Nén tất cả thành 1 file ZIP</label>
+    <label class="chk"><input type="checkbox" id="zip">Nén tất cả thành 1 file 7z</label>
     <button class="big" onclick="generate()">Tạo hồ sơ và tải về</button></section>
     <section><h3>File Excel</h3><p class="m">Đã lưu ${getRows().length} dòng trên thiết bị này. Mỗi lần tạo hồ sơ sẽ thêm 1 dòng.</p>
     <div class="row"><button class="sec" onclick="dlXlsx()">Tải Excel</button><button class="sec danger" onclick="clearRows()">Xóa dữ liệu Excel</button></div></section>`;
@@ -254,6 +254,17 @@ async function makeXlsx() {
   getRows().forEach((r, i) => ws.addRow({ ...r, stt: i + 1 }));
   ws.getRow(1).font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }];
   return new Uint8Array(await wb.xlsx.writeBuffer());
+}
+let sz7 = null;
+const ascii = s => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D');
+async function make7z(list, out) { // nén .7z bằng 7-Zip WASM (tải lần đầu ~1,8 MB, tên file trong gói bỏ dấu)
+  if (!sz7) sz7 = await (await import('https://cdn.jsdelivr.net/npm/7z-wasm@1.2.0/7zz.es6.js')).default();
+  const names = list.map(f => ascii(f.name));
+  list.forEach((f, i) => sz7.FS.writeFile(names[i], f.data));
+  sz7.callMain(['a', '-t7z', '-mx=5', out, ...names]);
+  const r = new Uint8Array(sz7.FS.readFile(out));
+  names.forEach(n => sz7.FS.unlink(n)); sz7.FS.unlink(out);
+  return r;
 }
 async function generate() {
   UI.forEach(([k]) => cur[k] = $('#f_' + k).value.trim());
@@ -276,14 +287,20 @@ async function generate() {
   rows.push({ user: me.full_name || me.email, time: now.toLocaleString('vi-VN'), types: chosen.map(t => t.name).join(', '), ...Object.fromEntries(UI.map(([k]) => [k, cur[k]])) });
   setRows(rows);
   const x = await makeXlsx();
+  let msg = 'Đã tạo hồ sơ và thêm 1 dòng vào Excel';
   if ($('#zip').checked) {
-    const z = new PizZip(); files.forEach(f => z.file(f.name, f.data)); z.file('DuLieuQuet.xlsx', x);
-    dl(`HoSo_${cur.so_cccd}.zip`, z.generate({ type: 'uint8array' }), 'application/zip');
+    const all = [...files, { name: 'DuLieuQuet.xlsx', data: x }];
+    try { toast('Đang nén file 7z...'); dl(`HoSo_${cur.so_cccd}.7z`, await make7z(all, 'out.7z'), 'application/x-7z-compressed'); }
+    catch (e) {
+      const z = new PizZip(); all.forEach(f => z.file(f.name, f.data));
+      dl(`HoSo_${cur.so_cccd}.zip`, z.generate({ type: 'uint8array' }), 'application/zip');
+      msg = 'Không nén được 7z (cần kết nối mạng để tải bộ nén), đã nén ZIP thay thế';
+    }
   } else {
     for (const f of files) { dl(f.name, f.data, DOCX); await sleep(500); }
     dl('DuLieuQuet.xlsx', x, XLSX);
   }
-  toast('Đã tạo hồ sơ và thêm 1 dòng vào Excel'); vScan();
+  toast(msg); vScan();
 }
 async function dlXlsx() { if (!getRows().length) return toast('Chưa có dữ liệu'); dl('DuLieuQuet.xlsx', await makeXlsx(), XLSX); }
 function clearRows() { if (confirm('Xóa toàn bộ dữ liệu Excel đã quét trên thiết bị này?')) { setRows([]); vScan(); } }
