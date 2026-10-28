@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quét CCCD</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap">
+<style>
+:root{--bg:#f3f5f2;--card:#fff;--ink:#16211d;--mut:#5d6b65;--line:#d5dcd7;--ac:#0f5c4a;--acw:#fff;--bad:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#0f1512;--card:#18211d;--ink:#e8efeb;--mut:#9aa9a2;--line:#2b3832;--ac:#4fc3a1;--acw:#06201a;--bad:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Be Vietnam Pro",system-ui,sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:12px 16px;background:var(--ac);color:var(--acw)}
+header a{color:inherit}
+nav{display:flex;gap:4px;padding:8px 12px 0;overflow-x:auto}
+nav button{background:none;border:0;border-bottom:3px solid transparent;color:var(--mut);padding:8px 12px;font:inherit;font-weight:600}
+nav button.on{color:var(--ink);border-color:var(--ac)}
+main{max-width:720px;margin:0 auto;padding:12px}
+section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:12px}
+h2,h3{margin:0 0 10px}h3{font-size:16px}
+.m{color:var(--mut);margin:4px 0}
+.grid{display:grid;gap:10px}
+label{display:block;font-size:13px;color:var(--mut)}
+input,select{width:100%;padding:10px;margin-top:3px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit}
+.chk{display:flex;gap:8px;align-items:center;color:var(--ink);font-size:15px;padding:6px 0}
+.chk input{width:auto;margin:0}
+button,.btn{background:var(--ac);color:var(--acw);border:0;border-radius:8px;padding:10px 14px;font:inherit;font-weight:600;cursor:pointer}
+button.sec,.btn.sec{background:none;color:var(--ink);border:1px solid var(--line)}
+button.danger{color:var(--bad)}
+button.big{width:100%;padding:13px;margin-top:8px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.item{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:10px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.item:first-of-type{border-top:0}
+.item>div{min-width:0}.item select{width:auto}
+#reader{width:100%;border-radius:8px;overflow:hidden}
+.auth{max-width:380px;display:grid;gap:10px;padding-top:40px}
+#t{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;display:none;max-width:90%;z-index:9}
+:focus-visible{outline:3px solid var(--ac);outline-offset:2px}
+</style>
+</head>
+<body>
+<div id="app"></div><div id="t"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pizzip@3.1.7/dist/pizzip.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docxtemplater@3.47.4/build/docxtemplater.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
+<script>
+/* ===== CẤU HÌNH: dán thông tin từ Supabase > Project Settings > API ===== */
+const CFG = { url: 'https://kwqnuezaolxeaqolsrtw.supabase.co', key: 'sb_publishable_CGvuRDr_IMT1yBbi0mdBag_z9bV486u' };
+const DEFAULT_PLACE = 'Cục Cảnh sát QLHC về TTXH';
+
+const sb = supabase.createClient(CFG.url, CFG.key);
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const FIELDS = ['so_cccd','so_cmnd_cu','ho_ten','ho_ten_hoa','ngay_sinh','gioi_tinh','dia_chi','ngay_cap','ngay_het_han','noi_cap','ngay_hien_tai'];
+const UI = [['so_cccd','Số căn cước'],['ho_ten','Họ và tên'],['ngay_sinh','Ngày sinh'],['gioi_tinh','Giới tính'],['dia_chi','Địa chỉ thường trú'],['ngay_cap','Ngày cấp'],['ngay_het_han','Ngày hết hạn'],['noi_cap','Nơi cấp'],['so_cmnd_cu','Số CMND cũ']];
+const COLS = [['stt','STT',6],['user','User quét',22],['time','Ngày giờ quét',20],['types','Loại văn bản',34],['so_cccd','Số căn cước',16],['ho_ten','Họ và tên',26],['ngay_sinh','Ngày sinh',12],['gioi_tinh','Giới tính',9],['dia_chi','Địa chỉ thường trú',44],['ngay_cap','Ngày cấp',12],['ngay_het_han','Ngày hết hạn',14],['noi_cap','Nơi cấp',28],['so_cmnd_cu','Số CMND cũ',14]];
+const OPT = { delimiters:{start:'{{',end:'}}'}, paragraphLoop:true, linebreaks:true, nullGetter:()=>'' };
+const LS = 'cccd_rows_v1';
+let me = null, view = 'scan', tpls = [], cur = {}, qr = null, camOn = false;
+
+const toast = m => { const t = $('#t'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = 'none', 4000); };
+const getRows = () => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } };
+const setRows = r => { try { localStorage.setItem(LS, JSON.stringify(r)); } catch { toast('Không lưu được dữ liệu trên máy'); } };
+
+/* ===== Đăng nhập ===== */
+function vAuth(msg = '') {
+  $('#app').innerHTML = `<main class="auth"><h2>Quét CCCD</h2><p class="m">${esc(msg)}</p>
+  <input id="em" type="email" placeholder="Email" autocomplete="username">
+  <input id="pw" type="password" placeholder="Mật khẩu" autocomplete="current-password">
+  <input id="fn" placeholder="Họ tên (chỉ cần khi đăng ký)">
+  <button class="big" onclick="login()">Đăng nhập</button>
+  <button class="sec" onclick="signup()">Đăng ký tài khoản (chờ admin duyệt)</button></main>`;
+}
+async function login() {
+  const { data, error } = await sb.auth.signInWithPassword({ email: $('#em').value.trim(), password: $('#pw').value });
+  if (error) return toast('Sai email hoặc mật khẩu');
+  enter(data.user);
+}
+async function signup() {
+  const { data, error } = await sb.auth.signUp({ email: $('#em').value.trim(), password: $('#pw').value, options: { data: { full_name: $('#fn').value.trim() } } });
+  if (error) return toast(error.message);
+  if (data.session) enter(data.user); else vAuth('Đã đăng ký. Hãy chờ quản trị viên duyệt tài khoản.');
+}
+async function enter(u) {
+  const { data } = await sb.from('profiles').select('*').eq('id', u.id).single();
+  me = data;
+  if (!me || !me.active) { await sb.auth.signOut(); return vAuth('Tài khoản đang chờ quản trị viên duyệt.'); }
+  shell();
+}
+async function logout() { await sb.auth.signOut(); me = null; vAuth(); }
+
+/* ===== Khung chính ===== */
+function shell() {
+  const tab = (k, l) => `<button class="${view === k ? 'on' : ''}" onclick="go('${k}')">${l}</button>`;
+  $('#app').innerHTML = `<header><b>Quét CCCD</b><span>${esc(me.full_name)} · <a href="#" onclick="logout();return false">Thoát</a></span></header>
+  <nav>${tab('scan', 'Quét & tạo hồ sơ')}${me.role === 'admin' ? tab('tpl', 'Mẫu biểu') + tab('usr', 'Tài khoản') : ''}</nav><main id="v"></main>`;
+  ({ scan: vScan, tpl: vTpl, usr: vUsr })[view]();
+}
+async function go(v) { await stopCam(); view = v; shell(); }
+async function loadTpls() {
+  const q = sb.from('templates').select('*').order('name');
+  const { data } = await q;
+  tpls = data || [];
+}
+
+/* ===== Quét QR ===== */
+function parse(t) {
+  const p = t.split('|');
+  if (p.length < 6 || !/^\d{9,12}$/.test(p[0])) return null;
+  const d = s => /^\d{8}$/.test(s) ? `${s.slice(0,2)}/${s.slice(2,4)}/${s.slice(4)}` : (s || '');
+  return { so_cccd: p[0], so_cmnd_cu: p[1] || '', ho_ten: p[2], ngay_sinh: d(p[3]), gioi_tinh: p[4], dia_chi: p[5], ngay_cap: d(p[6]), noi_cap: DEFAULT_PLACE, ngay_het_han: expiry(p[3], p[6]) };
+}
+function expiry(b, i) { // ước tính theo mốc đổi thẻ 25/40/60 tuổi, cần đối chiếu mặt thẻ
+  if (!/^\d{8}$/.test(b) || !/^\d{8}$/.test(i)) return '';
+  const by = +b.slice(4), age = +i.slice(4) - by;
+  const n = age < 23 ? 25 : age < 38 ? 40 : age < 58 ? 60 : 0;
+  return n ? `${b.slice(0,2)}/${b.slice(2,4)}/${by + n}` : 'Không thời hạn';
+}
+function onScan(text) {
+  const r = parse(text);
+  if (!r) return toast('Mã QR này không phải CCCD');
+  cur = r; stopCam().then(() => { vScan(); toast('Đã đọc QR. Hãy kiểm tra thông tin.'); });
+}
+async function toggleCam() {
+  if (camOn) return stopCam();
+  try {
+    qr = new Html5Qrcode('reader');
+    await qr.start({ facingMode: 'environment' }, { fps: 10, qrbox: { width: 260, height: 260 } }, onScan, () => {});
+    camOn = true; $('#bc').textContent = 'Tắt camera';
+  } catch { toast('Không mở được camera. Hãy cấp quyền hoặc dùng "Chọn ảnh QR".'); }
+}
+async function stopCam() {
+  if (qr && camOn) { try { await qr.stop(); } catch {} }
+  camOn = false;
+}
+async function scanImg(f) {
+  if (!f) return;
+  try { qr = qr || new Html5Qrcode('reader'); onScan(await qr.scanFile(f, false)); }
+  catch { toast('Không đọc được QR trong ảnh'); }
+}
+function vScan() {
+  loadTpls().then(() => {
+    if (view !== 'scan') return;
+    $('#v').innerHTML = `
+    <section><div id="reader"></div><div class="row"><button id="bc" onclick="toggleCam()">Bật camera</button>
+    <label class="btn sec">Chọn ảnh QR<input type="file" accept="image/*" hidden onchange="scanImg(this.files[0])"></label></div></section>
+    <section><h3>Thông tin trên căn cước</h3><div class="grid">${UI.map(([k, l]) => `<label>${l}<input id="f_${k}" value="${esc(cur[k] || '')}"></label>`).join('')}</div>
+    <p class="m">Ngày hết hạn được ước tính từ ngày sinh, hãy đối chiếu với mặt thẻ.</p></section>
+    <section><h3>Chọn mẫu biểu</h3>${tpls.filter(t => t.enabled).map(t => `<label class="chk"><input type="checkbox" class="tp" value="${t.id}">${esc(t.name)}</label>`).join('') || '<p class="m">Chưa có mẫu biểu. Quản trị viên cần tải mẫu lên.</p>'}
+    <label class="chk"><input type="checkbox" id="zip">Nén tất cả thành 1 file ZIP</label>
+    <button class="big" onclick="generate()">Tạo hồ sơ và tải về</button></section>
+    <section><h3>File Excel</h3><p class="m">Đã lưu ${getRows().length} dòng trên thiết bị này. Mỗi lần tạo hồ sơ sẽ thêm 1 dòng.</p>
+    <div class="row"><button class="sec" onclick="dlXlsx()">Tải Excel</button><button class="sec danger" onclick="clearRows()">Xóa dữ liệu Excel</button></div></section>`;
+  });
+}
+
+/* ===== Tạo hồ sơ ===== */
+const dl = (name, data, type) => {
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([data], { type: type || 'application/octet-stream' }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+};
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const DOCX = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+async function makeXlsx() {
+  const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet('DuLieu');
+  ws.columns = COLS.map(([key, header, width]) => ({ key, header, width }));
+  getRows().forEach((r, i) => ws.addRow({ ...r, stt: i + 1 }));
+  ws.getRow(1).font = { bold: true }; ws.views = [{ state: 'frozen', ySplit: 1 }];
+  return new Uint8Array(await wb.xlsx.writeBuffer());
+}
+async function generate() {
+  UI.forEach(([k]) => cur[k] = $('#f_' + k).value.trim());
+  if (!cur.so_cccd || !cur.ho_ten) return toast('Hãy quét QR hoặc nhập số căn cước và họ tên');
+  const ids = [...document.querySelectorAll('.tp:checked')].map(c => c.value);
+  if (!ids.length) return toast('Hãy chọn ít nhất 1 mẫu biểu');
+  const now = new Date(), data = { ...cur, ho_ten_hoa: cur.ho_ten.toUpperCase(), ngay_hien_tai: now.toLocaleDateString('vi-VN') };
+  const files = [], chosen = tpls.filter(t => ids.includes(t.id));
+  toast('Đang tạo hồ sơ...');
+  try {
+    for (const t of chosen) {
+      const { data: blob, error } = await sb.storage.from('templates').download(t.file_path);
+      if (error) throw new Error('Không tải được mẫu "' + t.name + '"');
+      const doc = new docxtemplater(new PizZip(await blob.arrayBuffer()), OPT);
+      doc.render(data);
+      files.push({ name: `${t.name.replace(/[\\/:*?"<>|]/g, '_')}_${cur.so_cccd}.docx`, data: doc.getZip().generate({ type: 'uint8array', compression: 'DEFLATE' }) });
+    }
+  } catch (e) { return toast(e.message || 'Lỗi khi điền mẫu biểu'); }
+  const rows = getRows();
+  rows.push({ user: me.full_name || me.email, time: now.toLocaleString('vi-VN'), types: chosen.map(t => t.name).join(', '), ...Object.fromEntries(UI.map(([k]) => [k, cur[k]])) });
+  setRows(rows);
+  const x = await makeXlsx();
+  if ($('#zip').checked) {
+    const z = new PizZip(); files.forEach(f => z.file(f.name, f.data)); z.file('DuLieuQuet.xlsx', x);
+    dl(`HoSo_${cur.so_cccd}.zip`, z.generate({ type: 'uint8array' }), 'application/zip');
+  } else {
+    for (const f of files) { dl(f.name, f.data, DOCX); await sleep(500); }
+    dl('DuLieuQuet.xlsx', x, XLSX);
+  }
+  toast('Đã tạo hồ sơ và thêm 1 dòng vào Excel'); vScan();
+}
+async function dlXlsx() { if (!getRows().length) return toast('Chưa có dữ liệu'); dl('DuLieuQuet.xlsx', await makeXlsx(), XLSX); }
+function clearRows() { if (confirm('Xóa toàn bộ dữ liệu Excel đã quét trên thiết bị này?')) { setRows([]); vScan(); } }
+
+/* ===== Quản lý mẫu biểu (admin) ===== */
+async function checkDocx(file) {
+  let doc;
+  try { doc = new docxtemplater(new PizZip(await file.arrayBuffer()), OPT); }
+  catch (e) { throw new Error('Mẫu bị lỗi cú pháp: ' + (e.properties?.errors?.map(x => x.properties.explanation).join('; ') || e.message)); }
+  const found = [...new Set((doc.getFullText().match(/\{\{.*?\}\}/g) || []).map(s => s.slice(2, -2).trim()))];
+  return { found, bad: found.filter(x => !FIELDS.includes(x)) };
+}
+async function saveTpl(id) {
+  const file = id ? $('#r_' + id).files[0] : $('#nf').files[0], name = id ? null : $('#nn').value.trim();
+  if (!file || (!id && !name)) return toast('Hãy nhập tên và chọn file .docx');
+  try {
+    const c = await checkDocx(file);
+    if (!c.found.length && !confirm('Không thấy trường điền nào ({{so_cccd}}...). Vẫn tải lên?')) return;
+    if (c.bad.length && !confirm('Có trường lạ sẽ để trống: ' + c.bad.join(', ') + '. Vẫn tải lên?')) return;
+    const path = crypto.randomUUID() + '.docx';
+    let r = await sb.storage.from('templates').upload(path, file, { contentType: DOCX });
+    if (r.error) throw r.error;
+    if (id) {
+      const t = tpls.find(x => x.id === id);
+      r = await sb.from('templates').update({ file_path: path, version: t.version + 1 }).eq('id', id);
+      if (!r.error) await sb.storage.from('templates').remove([t.file_path]);
+    } else r = await sb.from('templates').insert({ name, file_path: path });
+    if (r.error) throw r.error;
+    toast('Đã lưu mẫu biểu'); vTpl();
+  } catch (e) { toast(e.message || 'Lỗi tải lên'); }
+}
+async function togTpl(id, on) { await sb.from('templates').update({ enabled: on }).eq('id', id); vTpl(); }
+async function delTpl(id) {
+  const t = tpls.find(x => x.id === id);
+  if (!confirm('Xóa mẫu "' + t.name + '"?')) return;
+  await sb.storage.from('templates').remove([t.file_path]); await sb.from('templates').delete().eq('id', id); vTpl();
+}
+async function vTpl() {
+  await loadTpls();
+  $('#v').innerHTML = `<section><h3>Thêm mẫu biểu mới</h3><div class="grid"><label>Tên mẫu<input id="nn"></label>
+  <label>File Word (.docx)<input id="nf" type="file" accept=".docx"></label></div><button class="big" onclick="saveTpl()">Tải lên</button>
+  <p class="m">Trong file Word, gõ các trường như {{so_cccd}}, {{ho_ten}}, {{ho_ten_hoa}}, {{ngay_sinh}}, {{gioi_tinh}}, {{dia_chi}}, {{ngay_cap}}, {{ngay_het_han}}, {{noi_cap}}, {{so_cmnd_cu}}, {{ngay_hien_tai}}. Gõ liền một lần, không đổi định dạng giữa chừng.</p></section>
+  <section><h3>Danh sách mẫu biểu</h3>${tpls.map(t => `<div class="item"><div><b>${esc(t.name)}</b><div class="m">Phiên bản ${t.version}</div></div>
+  <div class="row"><label class="chk"><input type="checkbox" ${t.enabled ? 'checked' : ''} onchange="togTpl('${t.id}',this.checked)">Bật</label>
+  <label class="btn sec">Cập nhật file<input id="r_${t.id}" type="file" accept=".docx" hidden onchange="saveTpl('${t.id}')"></label>
+  <button class="sec danger" onclick="delTpl('${t.id}')">Xóa</button></div></div>`).join('') || '<p class="m">Chưa có mẫu biểu nào.</p>'}</section>`;
+}
+
+/* ===== Quản lý tài khoản (admin) ===== */
+async function addUser() {
+  const email = $('#ue').value.trim(), pw = $('#up').value, name = $('#un').value.trim();
+  if (!email || pw.length < 6) return toast('Nhập email và mật khẩu từ 6 ký tự');
+  const tmp = supabase.createClient(CFG.url, CFG.key, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } });
+  const { data, error } = await tmp.auth.signUp({ email, password: pw, options: { data: { full_name: name } } });
+  if (error) return toast(error.message);
+  await sb.from('profiles').update({ active: true }).eq('id', data.user.id);
+  toast('Đã tạo tài khoản'); vUsr();
+}
+async function updUser(id, patch) {
+  if (id === me.id) return toast('Không thể tự đổi quyền của chính mình'), vUsr();
+  const { error } = await sb.from('profiles').update(patch).eq('id', id);
+  toast(error ? error.message : 'Đã cập nhật'); vUsr();
+}
+async function vUsr() {
+  const { data } = await sb.from('profiles').select('*').order('created_at');
+  $('#v').innerHTML = `<section><h3>Tạo tài khoản nhân viên</h3><div class="grid"><label>Họ tên<input id="un"></label><label>Email<input id="ue" type="email"></label>
+  <label>Mật khẩu ban đầu<input id="up" type="text"></label></div><button class="big" onclick="addUser()">Tạo tài khoản</button></section>
+  <section><h3>Danh sách tài khoản</h3>${(data || []).map(u => `<div class="item"><div><b>${esc(u.full_name)}</b><div class="m">${esc(u.email)}</div></div>
+  <div class="row"><select onchange="updUser('${u.id}',{role:this.value})"><option value="staff" ${u.role === 'staff' ? 'selected' : ''}>Nhân viên</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Quản trị</option></select>
+  <label class="chk"><input type="checkbox" ${u.active ? 'checked' : ''} onchange="updUser('${u.id}',{active:this.checked})">Được dùng</label></div></div>`).join('')}</section>`;
+}
+
+/* ===== Khởi động ===== */
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  session ? enter(session.user) : vAuth();
+})();
+</script>
+</body>
+</html>
