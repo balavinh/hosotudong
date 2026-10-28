@@ -347,13 +347,24 @@ async function updUser(id, patch) {
   const { error } = await sb.from('profiles').update(patch).eq('id', id);
   toast(error ? error.message : 'Đã cập nhật'); vUsr();
 }
+let users = [];
+async function delUser(id) {
+  const u = users.find(x => x.id === id);
+  if (id === me.id) return toast('Không thể xóa chính tài khoản đang đăng nhập');
+  if (!confirm('Xóa vĩnh viễn tài khoản "' + (u?.full_name || u?.email) + '"? Không thể hoàn tác.')) return;
+  const { error } = await sb.rpc('delete_user', { uid: id });
+  toast(error ? (error.message.includes('delete_user') ? 'Chưa cài hàm xóa: hãy chạy file delete_user.sql trong Supabase' : error.message) : 'Đã xóa tài khoản');
+  vUsr();
+}
 async function vUsr() {
   const { data } = await sb.from('profiles').select('*').order('created_at');
+  users = data || [];
   $('#v').innerHTML = `<section><h3>Tạo tài khoản nhân viên</h3><div class="grid"><label>Họ tên<input id="un"></label><label>Email<input id="ue" type="email"></label>
   <label>Mật khẩu ban đầu<input id="up" type="text"></label></div><button class="big" onclick="addUser()">Tạo tài khoản</button></section>
   <section><h3>Danh sách tài khoản</h3>${(data || []).map(u => `<div class="item"><div><b>${esc(u.full_name)}</b><div class="m">${esc(u.email)}</div></div>
   <div class="row"><select onchange="updUser('${u.id}',{role:this.value})"><option value="staff" ${u.role === 'staff' ? 'selected' : ''}>Nhân viên</option><option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Quản trị</option></select>
-  <label class="chk"><input type="checkbox" ${u.active ? 'checked' : ''} onchange="updUser('${u.id}',{active:this.checked})">Được dùng</label></div></div>`).join('')}</section>`;
+  <label class="chk"><input type="checkbox" ${u.active ? 'checked' : ''} onchange="updUser('${u.id}',{active:this.checked})">Được dùng</label>
+  ${u.id === me.id ? '' : `<button class="sec danger" onclick="delUser('${u.id}')">Xóa</button>`}</div></div>`).join('')}</section>`;
 }
 
 /* ===== Khởi động ===== */
