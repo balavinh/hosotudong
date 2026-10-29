@@ -33,7 +33,7 @@ button.big{width:100%;padding:13px;margin-top:8px}
 .item:first-of-type{border-top:0}
 .item>div{min-width:0}.item select{width:auto}
 #reader{width:100%;border-radius:8px;overflow:hidden}#reader video{width:100%;display:block}
-.res{border-color:var(--ac);border-width:2px}.kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line)}.kv b{text-align:right}
+.res{border-color:var(--ac);border-width:2px}.kv{display:flex;justify-content:space-between;gap:12px;padding:5px 0;border-top:1px solid var(--line)}.kv b{text-align:right}.chip{padding:6px 10px;font-size:13px}label small{display:block}
 .auth{max-width:380px;display:grid;gap:10px;padding-top:40px}
 #t{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:8px;display:none;max-width:90%;z-index:30}
 #cap{position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:20;display:flex;align-items:flex-start;justify-content:center;padding:10px;overflow:auto}
@@ -60,13 +60,15 @@ button.big{width:100%;padding:13px;margin-top:8px}
 /* ===== CẤU HÌNH: dán thông tin từ Supabase > Project Settings > API ===== */
 const CFG = { url: 'https://kwqnuezaolxeaqolsrtw.supabase.co', key: 'sb_publishable_CGvuRDr_IMT1yBbi0mdBag_z9bV486u' };
 const DEFAULT_PLACE = 'Cục Cảnh sát QLHC về TTXH';
+const PLACES = ['Cục Cảnh sát QLHC về TTXH', 'Bộ Công an'];
+function setPlace(v) { const e = $('#f_noi_cap'); if (e) e.value = v; }
 
 const sb = supabase.createClient(CFG.url, CFG.key);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const FIELDS = ['so_cccd','so_cmnd_cu','ho_ten','ho_ten_hoa','ngay_sinh','gioi_tinh','dia_chi','ngay_cap','ngay_het_han','noi_cap','ngay_hien_tai'];
-const UI = [['so_cccd','Số căn cước'],['ho_ten','Họ và tên'],['ngay_sinh','Ngày sinh'],['gioi_tinh','Giới tính'],['dia_chi','Địa chỉ thường trú'],['ngay_cap','Ngày cấp'],['ngay_het_han','Ngày hết hạn'],['noi_cap','Nơi cấp'],['so_cmnd_cu','Số CMND cũ']];
-const COLS = [['stt','STT',6],['user','User quét',22],['time','Ngày giờ quét',20],['types','Loại văn bản',34],['so_cccd','Số căn cước',16],['ho_ten','Họ và tên',26],['ngay_sinh','Ngày sinh',12],['gioi_tinh','Giới tính',9],['dia_chi','Địa chỉ thường trú',44],['ngay_cap','Ngày cấp',12],['ngay_het_han','Ngày hết hạn',14],['noi_cap','Nơi cấp',28],['so_cmnd_cu','Số CMND cũ',14]];
+const FIELDS = ['so_cccd','so_cmnd_cu','ho_ten','ho_ten_hoa','ngay_sinh','gioi_tinh','dia_chi','ngay_cap','ngay_het_han','noi_cap','so_dien_thoai','ngay_hien_tai'];
+const UI = [['so_cccd','Số căn cước'],['ho_ten','Họ và tên'],['ngay_sinh','Ngày sinh'],['gioi_tinh','Giới tính'],['dia_chi','Địa chỉ thường trú'],['ngay_cap','Ngày cấp'],['ngay_het_han','Ngày hết hạn'],['noi_cap','Nơi cấp'],['so_dien_thoai','Số điện thoại (không bắt buộc)'],['so_cmnd_cu','Số CMND cũ']];
+const COLS = [['stt','STT',6],['user','User quét',22],['time','Ngày giờ quét',20],['types','Loại văn bản',34],['so_cccd','Số căn cước',16],['ho_ten','Họ và tên',26],['ngay_sinh','Ngày sinh',12],['gioi_tinh','Giới tính',9],['dia_chi','Địa chỉ thường trú',44],['ngay_cap','Ngày cấp',12],['ngay_het_han','Ngày hết hạn',14],['noi_cap','Nơi cấp',28],['so_dien_thoai','Số điện thoại',16],['so_cmnd_cu','Số CMND cũ',14]];
 const OPT = { delimiters:{start:'{{',end:'}}'}, paragraphLoop:true, linebreaks:true, nullGetter:()=>'' };
 const LS = 'cccd_rows_v1';
 let me = null, view = 'scan', tpls = [], cur = {};
@@ -198,6 +200,7 @@ function onScan(text) {
   const r = parse(text);
   if (!r) { if (text !== lastBad) { lastBad = text; toast('Đọc được mã QR nhưng không phải CCCD: ' + String(text).slice(0, 60)); } return false; }
   if (cur.so_cccd && cur.so_cccd !== r.so_cccd) { imgs = { front: null, back: null, phone: [] }; renderImgs(); }
+  const ph = $('#f_so_dien_thoai'); r.so_dien_thoai = (cur.so_cccd && cur.so_cccd !== r.so_cccd) ? '' : (ph ? ph.value.trim() : (cur.so_dien_thoai || ''));
   cur = r; stopCam(); fillForm(); toast('Đã đọc QR. Hãy kiểm tra thông tin bên dưới.'); return true;
 }
 const resHtml = () => '<h3>Đã đọc được từ QR</h3>' + UI.map(([k, l]) => cur[k] ? `<div class="kv"><span>${l}</span><b>${esc(cur[k])}</b></div>` : '').join('');
@@ -268,7 +271,7 @@ function vScan() {
     <label class="btn sec">Chọn ảnh QR<input type="file" accept="image/*" hidden onchange="scanImg(this.files[0]);this.value=''"></label>
     <select id="cs" hidden onchange="startCam(this.value)"></select></div></section>
     <section id="res" class="res" ${cur.so_cccd ? '' : 'hidden'}>${cur.so_cccd ? resHtml() : ''}</section>
-    <section><h3>Thông tin trên căn cước</h3><div class="grid">${UI.map(([k, l]) => `<label>${l}<input id="f_${k}" value="${esc(cur[k] || '')}"></label>`).join('')}</div>
+    <section><h3>Thông tin trên căn cước</h3><div class="grid">${UI.map(([k, l]) => `<label>${l}<input id="f_${k}" value="${esc(cur[k] || '')}"${k === 'so_dien_thoai' ? ' type="tel" inputmode="tel" autocomplete="off"' : ''}>${k === 'noi_cap' ? `<span class="row">${PLACES.map(v => `<button type="button" class="sec chip" onclick="setPlace(this.textContent)">${esc(v)}</button>`).join('')}</span><small class="m">Bấm để chọn nhanh, hoặc gõ tay giá trị khác.</small>` : ''}</label>`).join('')}</div>
     <p class="m">Ngày hết hạn được ước tính từ ngày sinh, hãy đối chiếu với mặt thẻ.</p><button class="sec" onclick="newCase()">Khách mới (xóa thông tin và ảnh)</button></section>
     <section id="imgs"></section>
     <section><h3>Chọn mẫu biểu</h3>${tpls.filter(t => t.enabled).map(t => `<label class="chk"><input type="checkbox" class="tp" value="${t.id}" onchange="updSum()">${esc(t.name)}</label>`).join('') || '<p class="m">Chưa có mẫu biểu. Quản trị viên cần tải mẫu lên.</p>'}
@@ -415,6 +418,8 @@ async function make7z(list, out) { // nén .7z bằng 7-Zip WASM (tải lần đ
 async function generate() {
   UI.forEach(([k]) => cur[k] = $('#f_' + k).value.trim());
   if (!cur.so_cccd || !cur.ho_ten) return toast('Hãy quét QR hoặc nhập số căn cước và họ tên');
+  cur.so_dien_thoai = (cur.so_dien_thoai || '').replace(/[\s.\-]/g, '');
+  if (cur.so_dien_thoai && !/^(\+?84|0)\d{8,10}$/.test(cur.so_dien_thoai) && !confirm('Số điện thoại "' + cur.so_dien_thoai + '" có vẻ chưa đúng định dạng. Vẫn dùng?')) return;
   const ids = [...document.querySelectorAll('.tp:checked')].map(c => c.value);
   if (!ids.length) return toast('Hãy chọn ít nhất 1 mẫu biểu');
   if (!(imgs.front || imgs.back || imgs.phone.length) && !confirm('Chưa có ảnh căn cước hoặc ảnh số điện thoại nên gói tải về sẽ KHÔNG có file PDF. Vẫn tạo hồ sơ?')) return;
@@ -492,7 +497,7 @@ async function vTpl() {
   await loadTpls();
   $('#v').innerHTML = `<section><h3>Thêm mẫu biểu mới</h3><div class="grid"><label>Tên mẫu<input id="nn"></label>
   <label>File Word (.docx)<input id="nf" type="file" accept=".docx"></label></div><button class="big" onclick="saveTpl()">Tải lên</button>
-  <p class="m">Trong file Word, gõ các trường như {{so_cccd}}, {{ho_ten}}, {{ho_ten_hoa}}, {{ngay_sinh}}, {{gioi_tinh}}, {{dia_chi}}, {{ngay_cap}}, {{ngay_het_han}}, {{noi_cap}}, {{so_cmnd_cu}}, {{ngay_hien_tai}}. Gõ liền một lần, không đổi định dạng giữa chừng.</p></section>
+  <p class="m">Trong file Word, gõ các trường như {{so_cccd}}, {{ho_ten}}, {{ho_ten_hoa}}, {{ngay_sinh}}, {{gioi_tinh}}, {{dia_chi}}, {{ngay_cap}}, {{ngay_het_han}}, {{noi_cap}}, {{so_dien_thoai}}, {{so_cmnd_cu}}, {{ngay_hien_tai}}. Gõ liền một lần, không đổi định dạng giữa chừng.</p></section>
   <section><h3>Danh sách mẫu biểu</h3>${tpls.map(t => `<div class="item"><div><b>${esc(t.name)}</b><div class="m">Phiên bản ${t.version}</div></div>
   <div class="row"><label class="chk"><input type="checkbox" ${t.enabled ? 'checked' : ''} onchange="togTpl('${t.id}',this.checked)">Bật</label>
   <label class="btn sec">Cập nhật file<input id="r_${t.id}" type="file" accept=".docx" hidden onchange="saveTpl('${t.id}')"></label>
